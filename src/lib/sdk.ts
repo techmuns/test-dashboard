@@ -47,6 +47,76 @@ function createNoopSdk(): DashboardClientSdk {
   };
 }
 
+// Defensively normalize the real SDK client. The live browser bundle may not
+// match the documented method signatures exactly: some methods (e.g.
+// requestContext / request) may return undefined instead of a Promise, and
+// subscription methods may not return an unsubscribe function. We wrap every
+// method so callers can always `await`, `.catch`, and call the returned
+// unsubscribe safely without crashing the dashboard.
+function normalizeSdk(raw: any): DashboardClientSdk {
+  const fn = (name: string): ((...args: any[]) => any) | null =>
+    typeof raw?.[name] === "function" ? raw[name].bind(raw) : null;
+
+  const ready = fn("ready");
+  const requestContext = fn("requestContext");
+  const publish = fn("publish");
+  const request = fn("request");
+  const onTopic = fn("onTopic");
+  const onRequest = fn("onRequest");
+  const onMessage = fn("onMessage");
+  const sendError = fn("sendError");
+
+  const toUnsub = (r: unknown): (() => void) =>
+    typeof r === "function" ? (r as () => void) : () => {};
+
+  const toPromise = (r: unknown): Promise<any> =>
+    r && typeof (r as any).then === "function"
+      ? (r as Promise<any>)
+      : Promise.resolve(r ?? null);
+
+  const safeVoid = (target: ((...a: any[]) => any) | null, label: string) =>
+    (...args: any[]) => {
+      try {
+        target?.(...args);
+      } catch (err) {
+        console.warn(`[dashboard] sdk.${label} failed`, err);
+      }
+    };
+
+  const safeSub = (target: ((...a: any[]) => any) | null, label: string) =>
+    (...args: any[]): (() => void) => {
+      try {
+        return toUnsub(target?.(...args));
+      } catch (err) {
+        console.warn(`[dashboard] sdk.${label} failed`, err);
+        return () => {};
+      }
+    };
+
+  return {
+    ready: safeVoid(ready, "ready"),
+    requestContext: () => {
+      try {
+        return toPromise(requestContext?.());
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    },
+    publish: safeVoid(publish, "publish"),
+    request: (topic: string, data?: unknown, options?: unknown) => {
+      try {
+        return toPromise(request?.(topic, data, options));
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    },
+    onTopic: safeSub(onTopic, "onTopic"),
+    onRequest: safeSub(onRequest, "onRequest"),
+    onMessage: safeSub(onMessage, "onMessage"),
+    sendError: safeVoid(sendError, "sendError"),
+  };
+}
+
 function initSdk(): DashboardClientSdk {
   const factory = window.MunshotDashboardSDK?.createDashboardClientSdk;
   if (!factory) {
@@ -56,7 +126,19 @@ function initSdk(): DashboardClientSdk {
     );
     return createNoopSdk();
   }
-  return factory({ dashboardId: DASHBOARD_ID, dashboardName: DASHBOARD_NAME });
+  try {
+    const client = factory({
+      dashboardId: DASHBOARD_ID,
+      dashboardName: DASHBOARD_NAME,
+    });
+    return normalizeSdk(client);
+  } catch (err) {
+    console.warn(
+      "[dashboard] Failed to initialize MunshotDashboardSDK; using no-op SDK.",
+      err,
+    );
+    return createNoopSdk();
+  }
 }
 
 export const sdk: DashboardClientSdk = initSdk();
