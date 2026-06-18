@@ -1,0 +1,55 @@
+/* Shimmer skeleton for loading states (UI Standards). */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    #e5e7eb 0%,
+    #f3f4f6 50%,
+    #e5e7eb 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+
+/* Widget card hover (UI Standards). */
+.widget-card {
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.widget-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(79, 70, 229, 0.2);
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.08),
+    0 8px 16px rgba(79, 70, 229, 0.06);
+}
+
+/* Subtle pulsing dot used by the live "refreshing"/"streaming" states. */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.dashboard-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
