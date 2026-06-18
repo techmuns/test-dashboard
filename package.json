@@ -1,0 +1,25 @@
+{
+  "name": "munshot-ask-the-web-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Munshot embedded dashboard: read a URL and ask an AI question grounded in its content.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "html-to-image": "^1.11.11",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

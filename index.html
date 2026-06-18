@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Munshot · Ask the Web</title>
+    <!-- Munshot Dashboard SDK (required for host context, auth, and exports) -->
+    <script src="https://munshot.s3.ap-south-1.amazonaws.com/SDK+script/munshot-dashboard-sdk.v1.0.0.min.js"></script>
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      /* The page itself must not scroll; only Zone 2 scrolls. */
+      body {
+        overflow: hidden;
+      }
+
+      @keyframes shimmer {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
+        }
+      }
+      .shimmer {
+        background-image: linear-gradient(
+          90deg,
+          #e5e7eb 0%,
+          #f3f4f6 50%,
+          #e5e7eb 100%
+        );
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+        border-radius: 6px;
+      }
+
+      .widget-card {
+        transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .widget-card:hover {
+        transform: translateY(-4px);
+        border-color: rgba(79, 70, 229, 0.2);
+        box-shadow:
+          0 20px 40px rgba(0, 0, 0, 0.08),
+          0 8px 16px rgba(79, 70, 229, 0.06);
+      }
+
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0;
+        }
+      }
+      .stream-caret {
+        display: inline-block;
+        width: 7px;
+        height: 14px;
+        margin-left: 2px;
+        background: #4f46e5;
+        vertical-align: text-bottom;
+        animation: blink 1s step-end infinite;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
