@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
-import { sdk } from "../lib/sdk";
+import {
+  sdk,
+  type DashboardHostContext,
+  type SessionContext,
+} from "../lib/sdk";
 
 // Authoritative host-context hook. The Munshot host owns auth and market
-// selection; dashboards consume them through the SDK. See auth-standards.md.
-
-export interface SessionContext {
-  token: string | null;
-  userName: string | null;
-  email: string | null;
-  orgId: string | null;
-  orgName: string | null;
-}
+// selection; dashboards consume them through the SDK.
+//
+// Correct flow against the real SDK:
+//   1. Read any context the SDK already cached from `host:init` (it may have
+//      arrived before React mounted) via sdk.getContext().
+//   2. Subscribe to the message channel and apply context from
+//      `host:init` / `host:context:update` envelopes (payload.context).
+//   3. Nudge the host to (re)send context with requestContext() — fire and
+//      forget; it returns a boolean and no-ops until the channel exists.
 
 const EMPTY_SESSION: SessionContext = {
   token: null,
@@ -27,38 +31,43 @@ export function useHostContext() {
   const [tickerCountry, setTickerCountry] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
-  const applyContext = (ctx: any) => {
-    if (!ctx) return;
-
-    if (ctx.session) setSession({ ...EMPTY_SESSION, ...ctx.session });
-
-    if (ctx.market) {
-      setTicker(ctx.market.selectedTicker ?? null);
-      setTickerCompany(ctx.market.selectedTickerCompany ?? null);
-      setTickerCountry(ctx.market.selectedTickerCountry ?? null);
-      setSelectedSymbol(ctx.market.selectedSymbol ?? null);
-    }
-  };
-
   useEffect(() => {
-    let cancelled = false;
+    const applyContext = (ctx: DashboardHostContext | null) => {
+      if (!ctx) return;
 
-    const sync = async () => {
-      try {
-        const ctx = await sdk.requestContext();
-        if (!cancelled) applyContext(ctx);
-      } catch (err) {
-        console.warn("[dashboard] requestContext failed", err);
+      if (ctx.session) {
+        setSession({ ...EMPTY_SESSION, ...ctx.session });
+      }
+
+      if (ctx.market) {
+        setTicker(ctx.market.selectedTicker ?? null);
+        setTickerCompany(ctx.market.selectedTickerCompany ?? null);
+        setTickerCountry(ctx.market.selectedTickerCountry ?? null);
+        setSelectedSymbol(ctx.market.selectedSymbol ?? null);
       }
     };
 
-    sync();
+    // 1. Apply already-cached context.
+    applyContext(sdk.getContext());
 
-    return sdk.onMessage((message: any) => {
-      const payload = message?.payload ?? message;
-      if (payload?.context) applyContext(payload.context);
-      if (payload?.session || payload?.market) applyContext(payload);
+    // 2. React to context updates over the message channel.
+    const unsubscribe = sdk.onMessage((envelope) => {
+      if (envelope?.source !== "host") return;
+      if (
+        envelope.kind === "host:init" ||
+        envelope.kind === "host:context:update"
+      ) {
+        const ctx = envelope.payload?.context as
+          | DashboardHostContext
+          | undefined;
+        if (ctx) applyContext(ctx);
+      }
     });
+
+    // 3. Ask the host to (re)send context.
+    sdk.requestContext();
+
+    return unsubscribe;
   }, []);
 
   return { session, ticker, tickerCompany, tickerCountry, selectedSymbol };

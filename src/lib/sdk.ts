@@ -1,144 +1,193 @@
-// Munshot Dashboard SDK client wrapper.
+// Munshot Dashboard SDK client adapter.
 //
-// The SDK is loaded as a browser bundle via the <script> tag in index.html and
-// exposed on window.MunshotDashboardSDK. This module initializes a single
-// dashboard-side client and exports it for the rest of the app.
-
-export interface DashboardClientSdk {
-  ready(): void;
-  requestContext(): Promise<any>;
-  publish(topic: string, data: unknown, metadata?: unknown): void;
-  request(topic: string, data?: unknown, options?: unknown): Promise<any>;
-  onTopic(topic: string, handler: (payload: any, meta?: any) => void): () => void;
-  onRequest(
-    topic: string,
-    handler: (payload: any, meta?: any) => unknown | Promise<unknown>,
-  ): () => void;
-  onMessage(handler: (message: any) => void): () => void;
-  sendError(error: unknown, metadata?: unknown): void;
-}
-
-declare global {
-  interface Window {
-    MunshotDashboardSDK?: {
-      createDashboardClientSdk(config: {
-        dashboardId: string;
-        dashboardName: string;
-      }): DashboardClientSdk;
-    };
-  }
-}
+// Typed against the ACTUAL shipped bundle
+// (munshot-dashboard-sdk.v1.0.0.min.js), not the idealized docs. Verified
+// behavior from the bundle source:
+//
+//   - The browser global exposes the module namespace. Loaded as a classic
+//     <script> (our case) `window.MunshotDashboardSDK.createDashboardClientSdk`
+//     is the factory. (Loaded as an ES module the same global is instead
+//     `{ createClient, Client }` — we probe both names to be safe.)
+//   - `getContext()` is SYNCHRONOUS and returns the latest cached context or
+//     null. This is how you read session/market/app.
+//   - `requestContext()` returns a BOOLEAN (whether the message was posted),
+//     NOT a Promise and NOT the context. It only nudges the host to (re)send
+//     context; it no-ops until the channel is established by `host:init`.
+//   - `autoReady` defaults to true: the SDK auto-sends `dashboard:ready` when
+//     it receives `host:init`, so a manual `ready()` call is not required.
+//   - Context is delivered on the message channel via envelopes of kind
+//     `host:init` / `host:context:update`, with the context at
+//     `envelope.payload.context`.
+//   - `onMessage/onTopic/onRequest` each return an unsubscribe function.
 
 export const DASHBOARD_ID = "chat-web-reader";
 export const DASHBOARD_NAME = "Chat + Web Reader";
 
-// No-op fallback so the dashboard still renders if the SDK script fails to load
-// (e.g. during local development outside the Munshot host).
-function createNoopSdk(): DashboardClientSdk {
-  return {
-    ready: () => {},
-    requestContext: async () => null,
-    publish: () => {},
-    request: async () => null,
-    onTopic: () => () => {},
-    onRequest: () => () => {},
-    onMessage: () => () => {},
-    sendError: () => {},
-  };
+export interface SessionContext {
+  token: string | null;
+  userName: string | null;
+  email: string | null;
+  orgId: string | null;
+  orgName: string | null;
 }
 
-// Defensively normalize the real SDK client. The live browser bundle may not
-// match the documented method signatures exactly: some methods (e.g.
-// requestContext / request) may return undefined instead of a Promise, and
-// subscription methods may not return an unsubscribe function. We wrap every
-// method so callers can always `await`, `.catch`, and call the returned
-// unsubscribe safely without crashing the dashboard.
-function normalizeSdk(raw: any): DashboardClientSdk {
-  const fn = (name: string): ((...args: any[]) => any) | null =>
-    typeof raw?.[name] === "function" ? raw[name].bind(raw) : null;
+export interface MarketContext {
+  selectedTicker: string | null;
+  selectedTickerCompany: string | null;
+  selectedTickerCountry: string | null;
+  selectedSymbol: string | null;
+}
 
-  const ready = fn("ready");
-  const requestContext = fn("requestContext");
-  const publish = fn("publish");
-  const request = fn("request");
-  const onTopic = fn("onTopic");
-  const onRequest = fn("onRequest");
-  const onMessage = fn("onMessage");
-  const sendError = fn("sendError");
+export interface AppContext {
+  route: string | null;
+  query: string | null;
+  viewMode: string | null;
+  selectedCategory: string | null;
+  searchQuery: string | null;
+}
 
-  const toUnsub = (r: unknown): (() => void) =>
-    typeof r === "function" ? (r as () => void) : () => {};
+export interface DashboardHostContext {
+  session?: SessionContext;
+  market?: MarketContext;
+  app?: AppContext;
+}
 
-  const toPromise = (r: unknown): Promise<any> =>
-    r && typeof (r as any).then === "function"
-      ? (r as Promise<any>)
-      : Promise.resolve(r ?? null);
+export interface DashboardSdkEnvelope {
+  namespace: string;
+  version: string;
+  channelId: string;
+  source: "host" | "dashboard";
+  kind: string;
+  timestamp: number;
+  requestId?: string;
+  payload?: any;
+}
 
-  const safeVoid = (target: ((...a: any[]) => any) | null, label: string) =>
-    (...args: any[]) => {
-      try {
-        target?.(...args);
-      } catch (err) {
-        console.warn(`[dashboard] sdk.${label} failed`, err);
-      }
+export interface NormalizedTopic {
+  topic: string;
+  data: any;
+  metadata?: any;
+}
+
+export interface TopicMeta {
+  origin: string;
+  topic: string;
+  requestId?: string;
+}
+
+export interface RequestOptions {
+  timeoutMs?: number;
+  metadata?: unknown;
+}
+
+export interface DashboardClientSdk {
+  getContext(): DashboardHostContext | null;
+  getChannelId(): string | null;
+  onMessage(
+    handler: (envelope: DashboardSdkEnvelope, meta: { origin: string }) => void,
+  ): () => void;
+  onTopic(
+    topic: string,
+    handler: (
+      topic: NormalizedTopic,
+      meta: TopicMeta,
+      envelope: DashboardSdkEnvelope,
+    ) => void,
+  ): () => void;
+  onRequest(
+    topic: string,
+    handler: (
+      topic: NormalizedTopic,
+      meta: TopicMeta,
+      envelope: DashboardSdkEnvelope,
+    ) => unknown | Promise<unknown>,
+  ): () => void;
+  ready(): boolean;
+  requestContext(): boolean;
+  publish(topic: string, data?: unknown, metadata?: unknown): boolean;
+  request(topic: string, data?: unknown, options?: RequestOptions): Promise<any>;
+  sendError(message: string, code?: string, details?: unknown): boolean;
+  destroy(): void;
+}
+
+export interface CreateClientConfig {
+  dashboardId: string;
+  dashboardName?: string;
+  autoReady?: boolean;
+  requestTimeoutMs?: number;
+  maxPayloadBytes?: number;
+  lockOriginOnFirstMessage?: boolean;
+  allowedOrigins?: string[];
+  targetWindow?: Window | null;
+  targetOrigin?: string;
+}
+
+type SdkFactory = (config: CreateClientConfig) => DashboardClientSdk;
+type SdkCtor = new (config: CreateClientConfig) => DashboardClientSdk;
+
+declare global {
+  interface Window {
+    MunshotDashboardSDK?: {
+      createDashboardClientSdk?: SdkFactory;
+      createClient?: SdkFactory;
+      DashboardClientSdk?: SdkCtor;
+      Client?: SdkCtor;
     };
+  }
+}
 
-  const safeSub = (target: ((...a: any[]) => any) | null, label: string) =>
-    (...args: any[]): (() => void) => {
-      try {
-        return toUnsub(target?.(...args));
-      } catch (err) {
-        console.warn(`[dashboard] sdk.${label} failed`, err);
-        return () => {};
-      }
-    };
-
+// Faithful no-op used ONLY when the SDK script is absent (e.g. running the
+// build standalone outside the Munshot host). Return types match the real
+// client so callers behave identically.
+function createNoopSdk(): DashboardClientSdk {
   return {
-    ready: safeVoid(ready, "ready"),
-    requestContext: () => {
-      try {
-        return toPromise(requestContext?.());
-      } catch (err) {
-        return Promise.reject(err);
-      }
-    },
-    publish: safeVoid(publish, "publish"),
-    request: (topic: string, data?: unknown, options?: unknown) => {
-      try {
-        return toPromise(request?.(topic, data, options));
-      } catch (err) {
-        return Promise.reject(err);
-      }
-    },
-    onTopic: safeSub(onTopic, "onTopic"),
-    onRequest: safeSub(onRequest, "onRequest"),
-    onMessage: safeSub(onMessage, "onMessage"),
-    sendError: safeVoid(sendError, "sendError"),
+    getContext: () => null,
+    getChannelId: () => null,
+    onMessage: () => () => {},
+    onTopic: () => () => {},
+    onRequest: () => () => {},
+    ready: () => false,
+    requestContext: () => false,
+    publish: () => false,
+    request: async () => null,
+    sendError: () => false,
+    destroy: () => {},
   };
 }
 
 function initSdk(): DashboardClientSdk {
-  const factory = window.MunshotDashboardSDK?.createDashboardClientSdk;
-  if (!factory) {
-    console.warn(
-      "[dashboard] MunshotDashboardSDK not found on window; using no-op SDK. " +
-        "This is expected only outside the Munshot host iframe.",
-    );
-    return createNoopSdk();
+  const global = window.MunshotDashboardSDK;
+  const config: CreateClientConfig = {
+    dashboardId: DASHBOARD_ID,
+    dashboardName: DASHBOARD_NAME,
+  };
+
+  const factory = global?.createDashboardClientSdk ?? global?.createClient;
+  if (typeof factory === "function") {
+    try {
+      return factory(config);
+    } catch (err) {
+      console.error("[dashboard] createDashboardClientSdk failed", err);
+    }
   }
-  try {
-    const client = factory({
-      dashboardId: DASHBOARD_ID,
-      dashboardName: DASHBOARD_NAME,
-    });
-    return normalizeSdk(client);
-  } catch (err) {
-    console.warn(
-      "[dashboard] Failed to initialize MunshotDashboardSDK; using no-op SDK.",
-      err,
-    );
-    return createNoopSdk();
+
+  const Ctor = global?.DashboardClientSdk ?? global?.Client;
+  if (typeof Ctor === "function") {
+    try {
+      return new Ctor(config);
+    } catch (err) {
+      console.error("[dashboard] new DashboardClientSdk failed", err);
+    }
   }
+
+  console.warn(
+    "[dashboard] MunshotDashboardSDK not found on window; using no-op SDK. " +
+      "Expected only when running outside the Munshot host iframe.",
+  );
+  return createNoopSdk();
 }
 
+// Single module-scoped client. The constructor attaches its window 'message'
+// listener immediately, so the SDK can receive and cache `host:init` even
+// before React mounts; the hook then reads it via getContext().
 export const sdk: DashboardClientSdk = initSdk();

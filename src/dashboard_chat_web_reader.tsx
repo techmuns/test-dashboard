@@ -100,9 +100,17 @@ export function DashboardChatWebReader() {
   const chatAbort = useRef<AbortController | null>(null);
   const webAbort = useRef<AbortController | null>(null);
 
-  // ---- SDK lifecycle: ready, context, and visual snapshot handler ----------
+  // Holds a getter for the current dashboard state so the host's
+  // `dashboard.capture.snapshot` request can read live values without the
+  // handler depending on render closures. Reassigned every render below.
+  const snapshotRef = useRef<() => unknown>(() => ({}));
+
+  // ---- SDK lifecycle: host request handlers --------------------------------
+  // The SDK's autoReady (default true) sends `dashboard:ready` on `host:init`,
+  // and host context arrives via useHostContext. Here we only register the
+  // host->dashboard request handlers. Each onRequest returns an unsubscribe fn.
   useEffect(() => {
-    const offCapture = sdk.onRequest("dashboard.capture.visual", async () => {
+    const offVisual = sdk.onRequest("dashboard.capture.visual", async () => {
       const el =
         document.querySelector("#dashboard-main") ||
         document.querySelector("[data-dashboard-capture-root='true']") ||
@@ -117,11 +125,16 @@ export function DashboardChatWebReader() {
       return { visualSnapshot: imageBlob, capturedAt: new Date().toISOString() };
     });
 
-    sdk.ready();
-    sdk.requestContext().catch(() => {});
+    // Host expects the current JSON state of the dashboard:
+    // { context: { ticker, filters }, selection: {...}, data: {...} }.
+    const offSnapshot = sdk.onRequest(
+      "dashboard.capture.snapshot",
+      () => snapshotRef.current(),
+    );
 
     return () => {
-      offCapture();
+      offVisual();
+      offSnapshot();
       chatAbort.current?.abort();
       webAbort.current?.abort();
     };
@@ -165,7 +178,7 @@ export function DashboardChatWebReader() {
       if (ctrl.signal.aborted) return;
       const message = err instanceof Error ? err.message : "Chat request failed";
       setChat((s) => ({ ...s, status: "error", error: message }));
-      sdk.sendError(message, { widget: "chat" });
+      sdk.sendError(message, "CHAT_REQUEST_FAILED", { widget: "chat" });
     }
   };
 
@@ -204,7 +217,9 @@ export function DashboardChatWebReader() {
       const message =
         err instanceof Error ? err.message : "Web Reader request failed";
       setWeb((s) => ({ ...s, status: "error", error: message }));
-      sdk.sendError(message, { widget: "web-reader" });
+      sdk.sendError(message, "WEB_READER_REQUEST_FAILED", {
+        widget: "web-reader",
+      });
     }
   };
 
@@ -221,6 +236,38 @@ export function DashboardChatWebReader() {
     () => (chat.text ? chat.text.trim().split(/\s+/).filter(Boolean).length : 0),
     [chat.text],
   );
+
+  // Keep the snapshot getter pointed at the latest state for
+  // `dashboard.capture.snapshot`.
+  snapshotRef.current = () => ({
+    context: {
+      ticker: ticker ?? null,
+      filters: [
+        { type: "query", value: queryInput },
+        { type: "urls", value: parseUrls(urlInput) },
+      ],
+    },
+    selection: {
+      chatId: chat.chatId,
+      messageId: chat.messageId,
+    },
+    data: {
+      chat: {
+        status: chat.status,
+        words: answerWords,
+        answer: chat.text,
+        chatId: chat.chatId,
+        messageId: chat.messageId,
+        generatedAt: chat.generatedAt,
+      },
+      webReader: {
+        status: web.status,
+        readAt: web.readAt,
+        urls: web.urls,
+        entries: web.entries,
+      },
+    },
+  });
 
   const tokenReady = Boolean(session.token);
   const busy = chat.status === "streaming" || web.status === "loading";
