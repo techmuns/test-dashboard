@@ -132,6 +132,11 @@ export function DashboardChatWebReader() {
       () => snapshotRef.current(),
     );
 
+    // Announce readiness AFTER all handlers (onMessage in useHostContext,
+    // onRequest here) are registered. This triggers the host to flush the
+    // queued host:init + context.
+    sdk.ready();
+
     return () => {
       offVisual();
       offSnapshot();

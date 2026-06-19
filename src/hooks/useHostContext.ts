@@ -1,20 +1,12 @@
 import { useEffect, useState } from "react";
-import {
-  sdk,
-  type DashboardHostContext,
-  type SessionContext,
-} from "../lib/sdk";
+import { sdk, type SessionContext } from "../lib/sdk";
 
-// Authoritative host-context hook. The Munshot host owns auth and market
-// selection; dashboards consume them through the SDK.
+// Authoritative host-context hook (matches the Munshot host contract).
 //
-// Correct flow against the real SDK:
-//   1. Read any context the SDK already cached from `host:init` (it may have
-//      arrived before React mounted) via sdk.getContext().
-//   2. Subscribe to the message channel and apply context from
-//      `host:init` / `host:context:update` envelopes (payload.context).
-//   3. Nudge the host to (re)send context with requestContext() — fire and
-//      forget; it returns a boolean and no-ops until the channel exists.
+// The host owns auth and market selection and pushes them to the dashboard.
+// The SDK caches the latest context internally; we read it with
+// sdk.getContext() and re-sync on every host message. The handshake itself
+// (sdk.ready()) is initiated once at app startup, not here.
 
 const EMPTY_SESSION: SessionContext = {
   token: null,
@@ -32,7 +24,8 @@ export function useHostContext() {
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   useEffect(() => {
-    const applyContext = (ctx: DashboardHostContext | null) => {
+    const sync = () => {
+      const ctx = sdk.getContext();
       if (!ctx) return;
 
       if (ctx.session) {
@@ -47,27 +40,9 @@ export function useHostContext() {
       }
     };
 
-    // 1. Apply already-cached context.
-    applyContext(sdk.getContext());
-
-    // 2. React to context updates over the message channel.
-    const unsubscribe = sdk.onMessage((envelope) => {
-      if (envelope?.source !== "host") return;
-      if (
-        envelope.kind === "host:init" ||
-        envelope.kind === "host:context:update"
-      ) {
-        const ctx = envelope.payload?.context as
-          | DashboardHostContext
-          | undefined;
-        if (ctx) applyContext(ctx);
-      }
-    });
-
-    // 3. Ask the host to (re)send context.
-    sdk.requestContext();
-
-    return unsubscribe;
+    // Read whatever the SDK already cached, then re-sync on every host message.
+    sync();
+    return sdk.onMessage(sync);
   }, []);
 
   return { session, ticker, tickerCompany, tickerCountry, selectedSymbol };

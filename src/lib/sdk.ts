@@ -160,6 +160,11 @@ function initSdk(): DashboardClientSdk {
   const config: CreateClientConfig = {
     dashboardId: DASHBOARD_ID,
     dashboardName: DASHBOARD_NAME,
+    // We announce readiness explicitly once at startup (after registering
+    // handlers). The host queues host:init/context until it receives
+    // dashboard:ready, so the dashboard must initiate the handshake; relying
+    // on autoReady (which only fires from inside host:init) would deadlock.
+    autoReady: false,
   };
 
   const factory = global?.createDashboardClientSdk ?? global?.createClient;
