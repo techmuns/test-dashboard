@@ -160,11 +160,11 @@ function initSdk(): DashboardClientSdk {
   const config: CreateClientConfig = {
     dashboardId: DASHBOARD_ID,
     dashboardName: DASHBOARD_NAME,
-    // We announce readiness explicitly once at startup (after registering
-    // handlers). The host queues host:init/context until it receives
-    // dashboard:ready, so the dashboard must initiate the handshake; relying
-    // on autoReady (which only fires from inside host:init) would deadlock.
-    autoReady: false,
+    // Leave autoReady at its default (true). The SDK sends dashboard:ready
+    // itself from inside its host:init handler — i.e. exactly when it has
+    // learned the channelId. Forcing it off and calling ready() ourselves
+    // from a mount effect races ahead of host:init and sends ready with a
+    // placeholder channel the host can't correlate, so it never connects.
   };
 
   const factory = global?.createDashboardClientSdk ?? global?.createClient;
