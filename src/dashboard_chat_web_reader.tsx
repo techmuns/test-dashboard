@@ -132,10 +132,10 @@ export function DashboardChatWebReader() {
       () => snapshotRef.current(),
     );
 
-    // Announce readiness AFTER all handlers (onMessage in useHostContext,
-    // onRequest here) are registered. This triggers the host to flush the
-    // queued host:init + context.
-    sdk.ready();
+    // Do NOT call sdk.ready() here. The SDK auto-sends dashboard:ready from
+    // inside its host:init handler, once it knows the channelId. Calling it
+    // manually from this mount effect races ahead of host:init and breaks the
+    // handshake.
 
     return () => {
       offVisual();
